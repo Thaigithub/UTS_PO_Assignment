@@ -1,0 +1,57 @@
+import numpy as np
+import numpy.linalg as la
+from scipy.optimize import line_search
+from .result import OptimizeResult
+
+
+def fletcher_reeves_reset(
+    fun,
+    x0: np.ndarray,
+    jac,
+    ls=line_search,
+    maxiter=100,
+    amax=1000.0,
+    tol=1.0e-8,
+    reset=100,
+):
+    x_eps = tol  # tolerence for convergence on delta x
+    f_eps = tol  # tolerence for convergence on delta f
+    g_eps = tol  # tolerence for convergence on norm of gradient
+    x_k = x0.copy()
+    nit = 1
+    f_k = fun(x_k)
+    d_k = -jac(x_k)
+    if la.norm(jac(x_k)) < g_eps:
+        return OptimizeResult(
+            x=x_k, fun=f_k, success=True, message="Gradient is zero", nit=0
+        )
+    while True:
+        alpha_k, _, _, _, _, success = ls(fun, jac, x_k, d_k, amax=amax)
+        if success is None:
+            raise Exception("Line search failed, change line search method")
+
+        if abs(alpha_k * la.norm(jac(x_k))) < x_eps:
+            return OptimizeResult(
+                x_k, f_k, True, "change of x is within tolerence", nit
+            )
+        x_k1 = x_k + alpha_k * d_k
+        d_k1 = None
+        if nit % reset == 0:
+            d_k1 = -jac(x_k1)
+        else:
+            d_k1 = -jac(x_k1) + (la.norm(jac(x_k1)) ** 2 / la.norm(jac(x_k)) ** 2) * d_k
+
+        if abs(f_k - fun(x_k1)) < f_eps:
+            return OptimizeResult(
+                x_k, f_k, True, "change of fun is within tolerence", nit
+            )
+        if la.norm(jac(x_k1)) < g_eps:
+            return OptimizeResult(
+                x_k, f_k, True, "norm of gradient is within tolerence", nit
+            )
+        if nit > maxiter:
+            return OptimizeResult(x_k, f_k, False, "Max iter reached", nit)
+        nit += 1
+        x_k = x_k1
+        f_k = fun(x_k1)
+        d_k = d_k1
