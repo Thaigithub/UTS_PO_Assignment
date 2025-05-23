@@ -44,7 +44,7 @@ def zoutendijk(
                 g_k,
                 A_ub=A_active,
                 b_ub=np.zeros(len(A_active)),
-                bounds=[(-1, 1), (-1, 1)],
+                bounds=[(-1, 1), (-1, 1), (-1, 1), (-1, 1)],
                 method="highs",
             ).x
         )
