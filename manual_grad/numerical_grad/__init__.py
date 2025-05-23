@@ -1,0 +1,2 @@
+from gradient_function import loss_function_component_gradient_numerical
+from hessian_function import loss_function_component_hessian_numerical
