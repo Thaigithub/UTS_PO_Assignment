@@ -1,64 +1,65 @@
+import numpy as np
+import numpy.linalg as la
+from scipy.optimize import minimize, OptimizeResult, linprog
+
+
 def zoutendijk(
     fun,
-    x0: np.ndarray,
-    A: np.ndarray,
-    b: np.ndarray,
-    W: np.ndarray = None,
-    w: np.ndarray = None,
-    maxiter=100,
-    tol=1.0e-8,
+    x0,
+    jac,
+    callback,
+    options: dict,
 ):
-    jac = grad(fun)
+    A = np.array([[0, 0, 0, -1]])
+    b = np.array([0])
+    maxiter = options.get("maxiter", 100)
+    tol = options.get("gtol", 1.0e-8)
     nit = 1
-    x = x0.copy()
-    n = len(x0)
+    nfev = 1
+    njev = 1
+    x_k = x0.copy()
+    f_k = fun(x_k)
+    g_k = jac(x_k)
+    callback(x_k)
+    res = OptimizeResult()
+    if la.norm(g_k) < tol:
+        res.x = x_k
+        res.success = True
+        res.status = 0
+        res.message = "Norm of gradient is within tolerence"
+        res.fun = f_k
+        res.nit = 0
+        res.nfev = nfev
+        res.njev = njev
+        res.jac = g_k
+        return res
     while True:
-        if nit > maxiter:
-            print("Max iter reached")
-            break
-        print("______________________________")
-        print("ITERATION:", nit)
-        print("-----DIRECTION SEARCH-----")
-        gra = jac(x)
-        print("grad =")
-        printer(gra)
         active_index = np.where(np.abs(A @ x - b) <= tol)[0]
-        print("active_index =")
-        printer(active_index + 1)
         A_active = A[active_index, :]
-        print("A_active =")
-        printer(A_active)
-        b_active = b[active_index]
-        print("b_active =")
-        printer(b_active)
         inactive_index = np.setdiff1d(np.arange(A.shape[0]), active_index)
         A_non_active = A[inactive_index, :]
-        print("A_non_active =")
-        printer(A_non_active)
         b_non_active = b[inactive_index]
-        print("b_non_active =")
-        printer(b_non_active)
-        dk = np.array(
+        d_k = np.array(
             linprog(
-                gra,
+                g_k,
                 A_ub=A_active,
                 b_ub=np.zeros(len(A_active)),
                 bounds=[(-1, 1), (-1, 1)],
                 method="highs",
             ).x
         )
-        print("dk =")
-        printer(dk)
-        if np.abs(gra.T @ dk) <= tol:
-            print("Optimization terminated due to grad * dk = 0")
-            break
-        print("-----LINE SEARCH-----")
+        if np.abs(g_k.T @ d_k) <= tol:
+            res.x = x_k
+            res.success = True
+            res.status = 0
+            res.message = "Dot product of gradient and improving direction is within tolerence"
+            res.fun = f_k
+            res.nfev = nfev
+            res.njev = njev
+            res.nit = nit
+            return res
         RHS = b_non_active - A_non_active @ x
-        print("RHS =")
-        printer(RHS)
-        LHS = A_non_active @ dk
-        print("LHS =")
-        printer(LHS)
+        LHS = A_non_active @ d_k
         bounds = [0, np.inf]
         for i in range(len(LHS)):
             if LHS[i] > 0:
@@ -70,22 +71,60 @@ def zoutendijk(
                 if bc > bounds[0]:
                     bounds[0] = bc
         a_max = max(bounds[0], bounds[1], 0)
-        print("a_max =", str(Fraction(a_max).limit_denominator()))
-        bounds = [0, a_max]
-        print("bounds =")
-        printer(np.array(bounds))
-        ls = lambda alpha: fun(x + alpha * dk)
-        gs = grad(ls)
-        a = fsolve(gs, 1)[0]
-        if a < bounds[0]:
-            a = bounds[0]
-        elif a > bounds[1]:
-            a = bounds[1]
+        ls = lambda alpha: fun(x_k + alpha[0] * d_k)
+        lsr = minimize(ls, [1], method="L-BFGS-B", bounds=[(0, a_max)])
+        alpha_k = lsr.x[0]
+        nfev += lsr.nfev
+        njev += lsr.njev
+        x_k1 = x_k + alpha_k * d_k
+        g_k1 = jac(x_k1)
+        f_k1 = fun(x_k1)
+        njev += 1
+        nfev += 1
+        callback(x_k1)
+        if abs(alpha_k * la.norm(d_k)) < tol:
+            res.x = x_k1
+            res.success = True
+            res.status = 0
+            res.message = "Change of x is within tolerence"
+            res.fun = f_k1
+            res.nit = nit
+            res.nfev = nfev
+            res.njev = njev
+            res.jac = g_k1
+            return res
+        if abs(f_k - f_k1) < tol:
+            res.x = x_k1
+            res.success = True
+            res.status = 0
+            res.message = "Change of fun is within tolerence"
+            res.fun = f_k1
+            res.nfev = nfev
+            res.njev = njev
+            res.nit = nit
+            return res
+        if la.norm(g_k1) < tol:
+            res.x = x_k1
+            res.success = True
+            res.status = 0
+            res.message = "Norm of gradient is within tolerence"
+            res.fun = f_k1
+            res.nfev = nfev
+            res.njev = njev
+            res.nit = nit
+            return res
+        if nit > maxiter:
+            res.x = x_k1
+            res.success = False
+            res.status = 0
+            res.message = "Max iter reached"
+            res.fun = f_k1
+            res.nfev = nfev
+            res.njev = njev
+            res.nit = nit
+            return res
 
-        if nit == 2:
-            a = 5
-        print("alpha =", str(Fraction(a).limit_denominator()))
-        x = x + a * dk
-        print("x =")
-        printer(x)
+        x_k = x_k1
+        f_k = f_k1
+        g_k = g_k1
         nit += 1
