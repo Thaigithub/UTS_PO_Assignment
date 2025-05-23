@@ -1,7 +1,7 @@
-from davidon_fletcher_powell import davidon_fletcher_powell
-from fletcher_reeves import fletcher_reeves
-from gradient_projection import gradient_projection
-from zoutendijk import zoutendijk
+from .davidon_fletcher_powell import davidon_fletcher_powell
+from .fletcher_reeves import fletcher_reeves
+from .gradient_projection import gradient_projection
+from .zoutendijk import zoutendijk
 
 def minimize(
     fun,

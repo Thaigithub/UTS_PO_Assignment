@@ -36,7 +36,7 @@ def davidon_fletcher_powell(
         return res
     while True:
         ls = lambda alpha: fun(x_k + alpha[0] * d_k)
-        lsr = minimize(ls, [1], method="BFGS", bounds=[(0, None)])
+        lsr = minimize(ls, [1], method="L-BFGS-B", bounds=[(0, None)])
         alpha_k = lsr.x[0]
         nfev += lsr.nfev
         njev += lsr.njev

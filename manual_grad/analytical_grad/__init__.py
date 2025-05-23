@@ -1,2 +1,2 @@
-from gradient_function import loss_function_component_gradient_analytical
-from hessian_function import loss_function_component_hessian_analytical
+from .gradient_function import loss_function_component_gradient_analytical
+from .hessian_function import loss_function_component_hessian_analytical
