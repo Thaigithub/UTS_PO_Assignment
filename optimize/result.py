@@ -1,7 +1,7 @@
 from typing import List
 import numpy as np
 
-class OptimizeResult:
+class OptimizeResult():
     """
     A class to hold the result of an optimization process.
 
