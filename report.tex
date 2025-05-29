@@ -1,0 +1,673 @@
+\documentclass[12pt]{article}
+
+
+% This can be used if you want to increase the spacing between lines to 1.5x
+\linespread{1.5}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{rotating}
+\usepackage[round]{natbib}
+\geometry{a4paper, margin=1in}
+\setlength{\parskip}{0.8em}
+\setlength{\parindent}{0pt}
+\begin{document}
+\title{Mathematical Formulation of Nelson-Siegel Model Calibration via Loss-Based Optimization}
+\maketitle
+
+
+
+\begin{center}
+\section*{Student:}
+\begin{tabular}{@{}ll@{}}
+Hayoung Lee:   & \href{mailto:hayoung.lee-2@student.uts.edu.au}{hayoung.lee-2@student.uts.edu.au} \\ 
+Quoc Thai Tran:& \href{mailto:quocthai.tran@student.uts.edu.au}{quocthai.tran@student.uts.edu.au} \\ 
+Stephanie Zhen:& \href{mailto:liyee.zhen@student.uts.edu.au}{liyee.zhen@student.uts.edu.au}\\ 
+Ziqi Zhou:     & \href{mailto:ziqi.zhou-3@student.uts.edu.au}{ziqi.zhou-3@student.uts.edu.au} 
+\end{tabular}
+
+\section*{Lecturer:}
+Hanyu Gu: \href{mailto:hanyu.gu@uts.edu.au}{hanyu.gu@uts.edu.au}
+\vfill
+\large
+School of Mathematical and Physics Sciences\\
+Faculty of Science\\
+University of Technology Sydney\\
+
+\end{center}
+\clearpage
+\tableofcontents
+
+\pagenumbering{arabic}
+\vspace{1cm}
+\clearpage
+\section{Introduction}
+
+The accurate estimation of the yield curve is a cornerstone of fixed‑income analytics, crucial for pricing bonds, managing interest‑rate risk, and conducting monetary‑policy analysis. Among the various term‑structure models, the \cite{NelsonSiegel1987} (NS model) has become one of the most widely used due to its parsimonious structure, intuitive interpretation, and empirical performance.
+
+Traditionally, the NS model is calibrated by minimizing the squared error between model‑implied and observed bond yields or prices. However, in practice, observed bond prices often come with bid–ask spreads, which reflect market uncertainty and transaction costs. Fitting a model exactly to a single price within the spread may lead to overfitting or unrealistic curve shapes.
+
+To address this issue, we propose a calibration framework that minimizes a loss function incorporating bid–ask bounds. Specifically, the loss penalizes model prices that fall outside the observed bid–ask interval, allowing flexibility within this realistic pricing range. The resulting optimization problem is continuous and differentiable almost everywhere but involves inequality constraints and non‑linearity due to the exponential structure of the NS model.
+
+In this project, we define the mathematical formulation of this loss‑based calibration approach and implement multiple numerical optimization methods to solve it. We compare their performance and evaluate the estimated yield curves on real or simulated bond data. The ultimate goal is to develop a robust and interpretable calibration method for term‑structure modeling that respects market‑implied price bounds.
+
+\section{Background}
+
+Modeling the term structure of interest rates is fundamental in modern finance, supporting applications such as bond pricing, risk management, and monetary‑policy analysis. Several frameworks have been developed over time, ranging from no‑arbitrage models to more flexible curve‑fitting approaches. Among them, the NS model has gained widespread adoption due to its balance between analytical tractability and empirical performance.
+
+Despite its popularity, standard calibration methods often rely on minimizing squared pricing errors across bonds. This approach typically assumes observed market prices are precise, ignoring the bid–ask spread. In practice, bond prices are quoted with uncertainty, and market participants transact at any price within the bid–ask range. Fitting a curve exactly to mid‑prices can lead to estimation bias or model instability.
+
+To address this, recent literature suggests incorporating price intervals into calibration. One approach is to formulate a loss function that penalizes deviations outside the observed bid–ask bounds, allowing greater flexibility in curve fitting while avoiding overfitting to noisy quotes.
+
+\section{Literature Review}\label{sec:lit-review}
+
+The Nelson--Siegel model was originally proposed by \citet{NelsonSiegel1987} as a parsimonious three-factor representation of the yield curve.  
+Its ability to capture the level, slope and curvature of the term structure with just four parameters has led to widespread adoption by central banks and market participants.
+
+Recognising that quoted bond prices come with bid–ask spreads, \citet{GomesGoncalvesGzylMayoral2017} calibrate short-rate term structure models using intervals rather than point prices.  
+By treating every coupon-bond quotation as the admissible range \([\text{bid},\text{ask}]\), they show that ignoring spreads systematically biases the estimated NS factors, especially for illiquid maturities—and propose a maximum-entropy procedure that finds the smoothest zero-coupon curve consistent with all intervals.
+
+Based on this insight, \citet{LapshinSohatskaya2020} develop an optimisation scheme in which model prices are penalised {\em only when they fall outside} the observed bid–ask band.  
+They experiment with several weighting and loss-function designs and demonstrate, using sovereign bond data, that interval-aware calibration improves out-of-sample pricing accuracy and hedging stability without sacrificing parsimony.
+
+Together, these studies underscore two key lessons:  
+(i) bid–ask information contains valuable constraints that should be respected during curve fitting, and  
+(ii) loss-based optimisation that tolerates any price within the trading range yields more robust NS parameter estimates.  
+These ideas form the conceptual backbone of the calibration framework advanced in the present report.
+
+\section{Objectives \& Scope}
+
+\subsection{Objectives}
+
+The primary objective of this project is to calibrate the NS yield‑curve model using a loss function that incorporates observed bid–ask spreads of coupon‑bearing bonds. Specifically, we aim to:
+
+\begin{enumerate}
+    \item Formulate a mathematically consistent loss function that penalises model‑implied prices lying outside market bid–ask bounds
+    \item Derive the analytical expressions for bond pricing, discount factors and the gradient of the loss function with respect to model parameters
+    \item Implement and compare multiple optimisation algorithms
+    \item Analyse the numerical performance, convergence behaviour and robustness of each method
+\end{enumerate}
+
+\subsection{Scope}
+
+This study is limited to the calibration of the NS model on a cross section of fixed coupon, default free government bonds. The scope is defined by the following assumptions and boundaries:
+
+\begin{enumerate}
+    \item Interest rates are modeled under a deterministic framework using continuously compounded yields
+    \item The model ignores liquidity premiums, tax considerations and default risk
+    \item Only static parameter estimation is considered—dynamic models or real‑time updating are beyond this project’s scope
+    \item The optimisation is constrained to $\gamma\geq0$
+\end{enumerate}
+
+\section{Methodology}\label{sec:method}
+
+\subsection{Mathematical Formulation and Loss-Based Calibration Framework}
+
+\subsubsection{Nelson-Siegel Yield Curve Model}
+
+The instantaneous forward rate function is:
+\[
+f(t) = f_0 + f_1 e^{-t/\gamma} + f_2 \cdot \frac{t}{\gamma} e^{-t/\gamma}
+\]
+where the parameter vector is:
+\[
+\boldsymbol{\theta} = (f_0, f_1, f_2, \gamma)^\top \in \mathbb{R}^4, \quad \text{with } \gamma > 0
+\]
+
+In this model, \( f_0 \) represents the long-term level of the yield curve, \( f_1 \) controls the short-term component (slope), \( f_2 \) captures the medium-term component (curvature), and \( \gamma \) is the decay factor that determines the exponential shape of the curve.
+
+
+\subsubsection{Zero-Coupon Discount Factor}
+
+The forward rate is defined as:
+\[
+f(\boldsymbol{\theta}, t) = f_0 + f_1 e^{- \frac{t}{\gamma}} + f_2 \cdot \frac{t}{\gamma} e^{- \frac{t}{\gamma}}
+\]
+Then, the discount factor is:
+\[
+B(\boldsymbol{\theta}, T) = \exp\left( - \int_0^T f(\boldsymbol{\theta}, t) \, dt \right)
+\]
+Then,
+\[
+ \int_0^T f(\boldsymbol{\theta}, t) \, dt =
+\int_0^T \left( f_0 + f_1 e^{- \frac{t}{\gamma}} + f_2 \cdot \frac{t}{\gamma} e^{- \frac{t}{\gamma}} \right) dt
+= T f_0 + \left( \gamma - e^{- \frac{T}{\gamma}} \gamma \right) f_1 + \left( \gamma - e^{- \frac{T}{\gamma}} (T + \gamma) \right) f_2
+\]
+
+Hence,
+\[
+B(\boldsymbol{\theta}, T)= \exp\left[
+- T f_0
+- \left( \gamma - e^{- \frac{T}{\gamma}} \gamma \right) f_1
+- \left( \gamma - e^{- \frac{T}{\gamma}} (T + \gamma) \right) f_2
+\right]
+\]
+
+\subsubsection{Bond Pricing with Coupons}
+
+The price of bond \( j \) with \( n_j \) coupon payments is given by:
+\[
+V_j = 100 \left( \sum_{i=1}^{n_j } c_j \cdot B(\boldsymbol{\theta}, T_{i}) +  B(\boldsymbol{\theta}, T_{n_j}) \right)
+\]
+
+\subsubsection{Market Bid-Ask Bound Constraints}
+
+Let the observed market bid and ask prices of bond \( j \) be:
+\[
+\text{bid}_j, \quad \text{ask}_j, \quad \text{with } \text{bid}_j \le \text{ask}_j
+\]
+
+We aim for \( V_j(\theta) \in [\text{bid}_j, \text{ask}_j] \) to reflect realistic market pricing.
+
+\subsubsection{Loss Function Construction}
+
+We define a penalty-based loss function for bond \( j \) as:
+\[
+\ell_j(\theta) =
+\left( \frac{\max(0, \text{bid}_j - V_j(\theta))}{\text{bid}_j} \right)^2 +
+\left( \frac{\max(0, V_j(\theta) - \text{ask}_j)}{\text{ask}_j} \right)^2
+\]
+
+This function penalizes the model only when \( V_j(\theta) \notin [\text{bid}_j, \text{ask}_j]  \).
+
+\subsubsection{Total Loss Function}
+
+The total loss across all \( m \) bonds is:
+\[
+L(\theta) = \sum_{j=1}^m \ell_j(\theta)
+\]
+
+\subsubsection{Optimization Objective}
+
+The loss function is continuous and differentiable almost everywhere with respect to the parameter vector \( \boldsymbol{\theta} = (f_0, f_1, f_2, \gamma)^\top \) with the constraint \( \gamma > 0 \). 
+
+We solve the following optimization problem:
+\[
+\min_{f_0, f_1, f_2, \gamma} \left(
+\sum_{j=1}^m \left[
+\left( \frac{\max(0, \text{Bid}_j - V_j)}{{Bid}_j} \right)^2 +
+\left( \frac{\max(0, V_j - \text{Ask}_j)}{\text{Ask}_j} \right)^2
+\right]
+\right)
+\]
+
+\subsubsection{Gradient and Hessian Calculation}
+
+\textbf{Analytically Gradient and Hessian Calculation}
+
+The first and second-order derivatives of the loss function were derived analytically and implemented manually in code. Detailed derivations can be found in Appendix A. 
+
+\textbf{Numerically Gradient and Hessian Calculation}
+
+Choose a small step \(\varepsilon>0\) and let \(\mathbf e_k\in\mathbb R^{4}\) denote the \(k\)-th standard basis vector.  For the total loss
+\[
+  L(\boldsymbol{\theta})=\sum_{j=1}^{m}
+  \Bigl(\tfrac{\max\!\bigl(0,\,V_j(\boldsymbol{\theta})-A_j\bigr)}{A_j}\Bigr)^{2}
+ \;+\;
+  \Bigl(\tfrac{\max\!\bigl(0,\,B_j-V_j(\boldsymbol{\theta})\bigr)}{B_j}\Bigr)^{2},
+\]
+the \(k\)-th partial derivative is numerically approximated by the central-difference formula  
+\[
+  \frac{\partial L}{\partial\theta_k}(\boldsymbol{\theta})
+  \;\approx\;
+  \frac{L(\boldsymbol{\theta}+\varepsilon\mathbf e_k)\;-\;L(\boldsymbol{\theta}-\varepsilon\mathbf e_k)}
+       {2\,\varepsilon}.
+\]
+Defining the perturbed vectors \(\boldsymbol{\theta}^{(+)}_k = \boldsymbol{\theta}+\varepsilon\mathbf e_k\) and \(\boldsymbol{\theta}^{(-)}_k = \boldsymbol{\theta}-\varepsilon\mathbf e_k\), this may be rewritten component-wise as  
+\[
+  \frac{\partial L}{\partial\theta_k}(\boldsymbol{\theta})
+  \;\approx\;
+  \sum_{j=1}^{m}
+  \frac{L_j\bigl(\boldsymbol{\theta}^{(+)}_k\bigr)
+        -L_j\bigl(\boldsymbol{\theta}^{(-)}_k\bigr)}
+       {2\,\varepsilon},
+\]
+If one prefers to approximate the derivative of each bond value first, the same scheme yields  
+\[
+  \frac{\partial V_j}{\partial\theta_k}(\boldsymbol{\theta})
+  \;\approx\;
+  \frac{V_j(\boldsymbol{\theta}^{(+)}_k)-V_j(\boldsymbol{\theta}^{(-)}_k)}{2\,\varepsilon},
+  \qquad
+  \frac{\partial B(\boldsymbol{\theta},T)}{\partial\theta_k}
+  \;\approx\;
+  \frac{B(\boldsymbol{\theta}^{(+)}_k,T)-B(\boldsymbol{\theta}^{(-)}_k,T)}{2\,\varepsilon}.
+\]
+
+Denote by \(\mathbf e_k,\mathbf e_\ell\in\mathbb R^{4}\) the standard basis vectors indexed by the two integers \(k,\ell\in\{0,1,2,3\}\) (\(k\le\ell\) after sorting).  
+Define the four perturbed parameter vectors
+\[
+\begin{aligned}
+\boldsymbol{\theta}^{(++)}&=\boldsymbol{\theta}+\varepsilon\mathbf e_k+\varepsilon\mathbf e_\ell,\\
+\boldsymbol{\theta}^{(+-)}&=\boldsymbol{\theta}+\varepsilon\mathbf e_k-\varepsilon\mathbf e_\ell,\\
+\boldsymbol{\theta}^{(-+)}&=\boldsymbol{\theta}-\varepsilon\mathbf e_k+\varepsilon\mathbf e_\ell,\\
+\boldsymbol{\theta}^{(--)}&=\boldsymbol{\theta}-\varepsilon\mathbf e_k-\varepsilon\mathbf e_\ell,
+\end{aligned}
+\]
+and evaluate the loss at these points:
+\(L^{(++)}=L(\boldsymbol{\theta}^{(++)}),\;
+  L^{(+-)}=L(\boldsymbol{\theta}^{(+-)}),\;
+  L^{(-+)}=L(\boldsymbol{\theta}^{(-+)}),\;
+  L^{(--)}=L(\boldsymbol{\theta}^{(--)})\).
+  
+The mixed second-order partial derivative is then approximated by the central finite-difference formula
+\[
+\frac{\partial^{2}L}{\partial\theta_k\partial\theta_\ell}(\boldsymbol{\theta})
+\;\approx\;
+\frac{L^{(++)}-L^{(+-)}-L^{(-+)}+L^{(--)}}{4\varepsilon^{2}}
+\].
+
+%---------------
+\subsection{Property of the loss function}
+\label{sec:property}
+%---------------
+Let the penalised objective be
+\[
+L(\boldsymbol{\theta})
+=\sum_{j=1}^{m}
+  \Bigl[\tfrac{\max(0,\text{Bid}_{j}-V_{j}(\boldsymbol{\theta}))}
+              {\text{Bid}_{j}}\Bigr]^{2}
+ +\Bigl[\tfrac{\max(0,V_{j}(\boldsymbol{\theta})-\text{Ask}_{j})}
+              {\text{Ask}_{j}}\Bigr]^{2},
+\qquad 
+\boldsymbol{\theta}=(f_0,f_1,f_2,\gamma)^{\!\top},
+\]
+where each model price  \(V_{j}(\boldsymbol{\theta})=100\bigl[c_j\sum_{i}B(\boldsymbol{\theta},T_{ji})
+                               +B(\boldsymbol{\theta},T_{jn_j})\bigr]\) is non-linear in \(\boldsymbol{\theta}\) through the discount factor
+\[
+B(\boldsymbol{\theta},T)=
+\exp\!\Bigl\{-Tf_0-(\gamma-e^{-T/\gamma}\gamma)f_1 -
+          \bigl[\gamma-e^{-T/\gamma}(T+\gamma)\bigr]f_2\Bigr\},
+\qquad \gamma\geq0.
+\]
+\subsubsection{Differentiability of \(L\)}
+The loss function is differentiable as we discussed. Therefore, we can get gradient and hessian matrix, which means we can use gradient descent method such as Newton's method.
+
+\subsubsection{Non-convexity of \(L\)}
+We can say that Hessian of L on targeted boundary is not positive-semidefinite as we found that all eigenvalues of Hessian were not positive. We implemented to find the eigenvalues of Hessian using a grid scan method on $f_0\in[-5,5], f_1\in[-5,5],f_1\in[-5,5],\gamma\in(0,20]$ which were set because those grid was our target and searching whole grid takes so much time and those ranges are our target. The Hessian eigenvalues were obtained via NumPy's \texttt{eigvalsh} in Python. However, the Hessian on the grid always yields non positive eigenvalues of $\nabla^{2}L$. Hence we assume that \(L\) is non-convex with these reasons.
+We can conclude that the optimal points are locally minimum. 
+
+\subsubsection{Plots of Optimalisation}
+To understand how the optimalisation is processing, we first optimise the loss function in the scipy. We adopted the quasi-Newton method with BGFS because it is known to be robust with non convexity, but we found out that quasi-newton is very sensitive to the starting point as they sometime didn't converge at some staring points. We tried various initial vectors and we found different local minimums which were sometimes not reasonable. Therefore, to focus on our target ranges, we set the initial value as $x_0=\begin{bmatrix}
+    0.042&-0.0318&-0.0268&1.72
+\end{bmatrix}$ which is from \cite{DieboldLi2006}. Then, our local optimal point is follows:
+\[ x = 
+\begin{bmatrix}
+0.644 & -0.0291 & 1.28*10^{-5} & 17.97 \\
+
+\end{bmatrix}
+\]
+\subsubsection*{1. Two-dimensional loss surface}
+In addition, we can show how the optimal points are optimized with the ensemble of trajectories in plots. We plot how the $f_0, f_1$ are optimised from $\begin{bmatrix}
+    0.1&0.1
+\end{bmatrix}$ with fixed $f_3, \gamma$ which were the values above. In Figure \ref{fig:path-2d}, the path is moving quite dramatically. We can think that the Hessian changes completely as BFGS method updates it. We can see at point $\begin{bmatrix}
+    0.644 & -0.0291 
+\end{bmatrix}$, the process is finished. Moreover, the background color indicates the value of loss function at a point. The purple area says much lower loss values than yellow area especially when $\begin{bmatrix}
+    -0.1 & -0.1 
+\end{bmatrix}$.
+
+
+\subsubsection*{2. Three-dimensional loss surface}
+About the three-dimensional loss surface in Figure \ref{fig:path-3d}, we can get to know that about this cube $f_0\!\in[-0.06,0.10]$, $f_1\!\in[-0.10,0.10]$, $f_2\!\in[-0.10,0.10]$.  And darker points indicate lower loss values. The resulting surface reveals a narrow, almost linear valley running diagonally through the cloud: moving along this ridge leaves the loss nearly unchanged, while moving a small step laterally, the target value rises rapidly. This canyon explains the markedly different convergence behaviour observed in our analysis.
+
+\begin{figure}[ht]
+  \centering
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{2D.png}
+    \caption{Optimisation path on the $f_0$–$f_1$ loss surface}
+    \label{fig:path-2d}
+  \end{minipage}
+  \hspace{0.02\linewidth}
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{3D.png}
+    \caption{Optimisation path on the 3-D loss surface}
+    \label{fig:path-3d}
+  \end{minipage}
+\end{figure}
+
+
+
+\subsection{Optimization Algorithms}
+
+Let
+\[
+\boldsymbol{\theta}
+=(f_{0},f_{1},f_{2},\gamma)^{\top}\in\mathbb{R}^{3}\times\mathbb{R}_{++},
+\qquad
+\gamma\geq0,
+\]
+and denote by \(V_{j}(\boldsymbol{\theta})\), the model price of bond \(j\in\{1,\dots,m\}\) as given in Equation~(3.3).
+For observed bid–ask bounds \(\bigl[\text{Bid}_{j},\text{Ask}_{j}\bigr]\)
+the penalised loss is as follows:
+\[
+L(\boldsymbol{\theta})
+=\sum_{j=1}^{m}\ell_{j}(\boldsymbol{\theta}),\qquad
+\ell_{j}
+=\Bigl[\tfrac{\max(0,\text{Bid}_{j}-V_{j})}{\text{Bid}_{j}}\Bigr]^{2}
+     +
+     \Bigl[\tfrac{\max(0,V_{j}-\text{Ask}_{j})}{\text{Ask}_{j}}\Bigr]^{2}.
+\]
+Define \(\boldsymbol{g}=\nabla L\) and \(H=\nabla^{2}L\); closed-form expressions are listed in Section \ref{sec:method}. The calibration proceeds through two deterministic iterative schemes,
+both driven solely by the triplet \((L,\boldsymbol{g},H)\).
+
+We implemented two methods: one manually coded from scratch, and the other using SciPy’s built-in optimizer. 
+
+We found that the parameter $\gamma$ must be non-negative to avoid numerical overflow. To address this, we impose a constraint on $\gamma$. One way to handle this constraint internally is to reparameterize it using a transformation: $\gamma=e^x$ where $x \in \mathbb{R}$. This approach ensures $\gamma\geq0$ automatically and allows us to apply unconstrained optimization methods such as DFP or Conjugate Gradient. 
+ Alternatively, we may retain the constraint $\gamma\geq0$ explicitly and apply constrained optimization algorithms such as the Zoutendijk method or the Gradient Projection method.
+Therefore, we define the discount factor as:
+$$B(\boldsymbol{\theta}, T) = \begin{cases}
+    e^{-Tf_0}, & \gamma = 0\\
+ \exp\left[
+- T f_0
+- \left( \gamma - e^{- \frac{T}{\gamma}} \gamma \right) f_1
+- \left( \gamma - e^{- \frac{T}{\gamma}} (T + \gamma) \right) f_2
+\right], &\gamma > 0
+\end{cases}$$
+
+
+\subsubsection{Manual Implementation Methods}
+To improve the speed of our manual optimization, we employed the L-BFGS-B method from SciPy as the line search approach, rather than using a line search algorithm. 
+%--------------------
+\textbf{1. DFP (Davidon–Fletcher–Powell) Method}
+%--------------------
+The DFP method is a quasi-Newton algorithm designed for unconstrained optimization. It assumes the objective function is continuously differentiable and builds an approximation to the inverse Hessian matrix using gradient information only. At each iteration, the search direction is computed as a product of the inverse Hessian approximation and the negative gradient. A line search is used to determine the step size. 
+
+\textbf{2. Fletcher–Reeves Method (Conjugate Gradient) }
+%----------------
+The Conjugate Gradient (CG) method is suitable for large-scale unconstrained problems. Instead of following the steepest descent direction, CG computes mutually conjugate directions that allow faster convergence. The method avoids storing matrices explicitly, making it efficient in memory.
+
+\textbf{3. Zoutendijk Method}
+%----------------
+Zoutendijk's method provides a theoretical framework for the convergence of constrained optimization algorithms that use descent directions and line search. The approach assumes the objective function is differentiable and that the step sizes satisfy conditions such as the Armijo rule. It ensures convergence to a stationary point by requiring that each descent direction forms a sufficiently small angle with the gradient.
+
+%----------------
+\textbf{4. Gradient Projection}
+%----------------
+The Gradient Projection Method is explicitly designed for constrained optimization where the feasible region is convex. At each iteration, it takes a step along the negative gradient and then projects the point back onto the feasible set to maintain feasibility. This method assumes that the objective function is continuously differentiable and the projection can be efficiently computed.
+
+
+\subsubsection{SciPy Methods}
+
+As mentioned above, we applied unconstrained optimization algorithms such as BFGS, Newton-CG, and CG by implicitly enforcing the constraint $\gamma\geq0$. For constrained optimization, we used the L-BFGS-B algorithm. 
+
+%----------
+\textbf{1. BFGS and L-BFGS-B}
+
+The BFGS (Broyden–Fletcher–Goldfarb–Shanno) method is a quasi-Newton algorithm that iteratively approximates the inverse Hessian matrix using gradient information. It is efficient for medium-scale unconstrained optimization and offers superlinear convergence for smooth problems. However, it requires storing a full \( n \times n \) matrix, which becomes impractical for high-dimensional problems. The L-BFGS-B (Limited-memory BFGS with Bounds) method addresses this limitation by storing only a few vectors that represent the approximation implicitly, reducing memory usage.
+
+%----------
+\textbf{2. Newton-CG }
+
+The Newton-CG (also known as Trust-Region Newton-Conjugate Gradient) method is a second-order optimization algorithm designed for large-scale problems. It minimizes the objective function by solving the Newton system using an inner Conjugate Gradient solver rather than explicitly computing the inverse Hessian. The outer loop checks the gradient norm, and the inner loop solves for a descent direction up to a residual tolerance. 
+
+%-----------
+\textbf{3. Conjugate-Gradient (Polak-Ribiere)}
+%-----------
+The Polak–Ribiere variant of the Conjugate Gradient method is a first-order method suitable for smooth, unconstrained optimization problems. This method retains conjugacy across iterations, leading to faster convergence than steepest descent. To mitigate loss of conjugacy in non-quadratic or kinked regions, periodic restarts are applied. A tight gradient norm tolerance and relaxed Wolfe condition parameters are recommended for robust line search.
+
+\subsection{Data}
+
+The data used in this study are Australian Government Bonds obtained from the Australian Securities Exchange (ASX). These bonds are classified as Treasury Bonds, issued by the Australian Government, and are considered to be free of default risk. Compared to corporate bonds, government bonds are backed by the full faith and credit of the federal government, and thus serve as a benchmark for risk-free interest rates. The dataset includes bonds with various maturities and coupon rates, enabling the construction of a comprehensive term structure of interest rates. By analyzing bonds across different maturities, we aim to capture the shape and dynamics of the yield curve with higher accuracy. Our implementation, as of 23 May 2025, is configured to automatically retrieve the latest available data from the ASX. This ensures that our yield curve estimation reflects the most up-to-date market conditions.
+
+\section{Results \& Discussion}\label{sec:results}
+
+\subsection{Gradient and Hessian function}
+
+We computed the gradient and Hessian of the loss function using three approaches: analytical derivation, numerical approximation, and automatic differentiation via the \texttt{Autograd} library. To evaluate efficiency, we compared each method in terms of accuracy and speed — taking the analytical method as the accuracy benchmark and the numerical method precompiled in C as the speed baseline. Among the three, \texttt{Autograd} achieved the best overall performance. This is likely due to its use of vectorized operations and internal computation graph, which minimizes redundant calculations. 
+
+\subsection{Result of Optimization Method }
+
+The Table \ref{tab:summary} below summarizes the outcomes of the optimization algorithms applied to estimate the parameters of the Nelson-Siegel model. For each algorithm, we report the estimated parameters, the final loss value, and whether the optimization converged successfully. In cases where the algorithm failed, the corresponding failure reasons are also noted. The fact that each algorithm estimated substantially different parameter values suggests the existence of multiple local minima in the loss function. This was further supported by experiments where varying the initial values—especially when they were far from the benchmark—led to different optima. This highlights the sensitivity of the model to initial parameter settings.
+Furthermore, optimization methods involving conjugate gradient (CG) techniques consistently failed. We think that this failure may stem from the non-convex nature of our loss function, which poses challenges for gradient-based algorithms.
+
+\label{sec:results-data}
+\begin{sidewaystable}
+\centering
+
+\begin{tabular}{|l |l |l |l |l |l |l |l |l|}\hline       
+ Algorithm & f0 & f1 & f2 & gamma & Loss Value & Itr& S/F& Message\\\hline
+ DFP & 0.871& -0.829& -0.796& 108.526& 0.000013
+& 24& S& Change of fun is within tolerence
+\\\hline
+  Fletcher-Reeves& -inf& -inf& inf& inf& 0.000000
+& 3& S& Norm of gradient is within tolerence
+\\\hline
+  Gradient Projection & 0.053& -0.013& -0.032& 1.721& 2.090541
+& 10& S& Change of x is within tolerence
+\\\hline
+  Zoutendijk & 0.042& -0.032& -0.027& 1.720& 1.362066
+& 209& S& Change of x is within tolerence
+\\\hline
+ CG & 0.057& -0.019& -0.019& 4.285& 0.000032
+& 159& S& Optimization terminated successfully.
+\\\hline
+  Newton-CG & 0.066& -0.028& -0.005& 14.234& 0.645016
+& 300& F& Warning: Maximum number of iterations has been...
+\\\hline
+  L-BFGS-B & 0.071& -0.033& -0.007& 17.005& 0.000013
+& 32& S& Convergence\\\hline
+  BFGS & 0.066& -0.029& 0.000& 17.804& 6.521601
+& 1& F& Desired error not necessarily achieved due to ...
+\\ \hline
+
+\end{tabular}
+  \caption{Performance result of manual algorithm and SciPy solvers }
+  \label{tab:summary}
+\end{sidewaystable}
+\clearpage
+To gain a deeper understanding of how each algorithm performs during the optimization process, we visualized the loss path in two different ways. The Figure \ref{fig:iterationpath} illustrates the progression of the loss value over iterations, while the Figure \ref{fig:timepath} shows the loss trajectory with respect to computation time in seconds.
+ As described earlier, some algorithms converged within just a few seconds, whereas others required over a minute to complete. Despite these differences in runtime, most algorithms—except for Gradient Projection and DFP—achieved similar final loss values.
+
+\begin{figure}[ht]
+  \centering
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=1\linewidth]{iteration.png}
+    \caption{Loss path over iteration of all algorithm}
+    \label{fig:iterationpath}
+\end{minipage}
+  \hspace{0.02\linewidth}
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+
+    \includegraphics[width=1\linewidth]{time.png}
+    \caption{Loss path over time of all algorithm}
+    \label{fig:timepath}
+  \end{minipage}
+\end{figure}
+To identify the best-performing model, we visualized the resulting term structures of interest rates in Figure \ref{fig:interest rate} , which was the core objective of our analysis. In this comparison, we excluded algorithms that yielded highly unrealistic $\gamma$ values. For instance, although the DFP algorithm was very fast and achieved a low loss value, we applied a transformation to $\gamma$ to impose a constraint during optimization. However, the resulting $\gamma$ after optimization was excessively large, leading to an impractical value. In addition, we excluded algorithms which showed signs of overfitting, such as those requiring more than 300 iterations for convergence.
+Among the evaluated methods, we concluded that and L-BFGS-B had a superior performance. It not only achieved the lowest loss values but also produced term structures aligned with the benchmark. However, its curves increased more steeply than the benchmark, which is due to its relatively high estimated $\gamma$ value, approximately around 17.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{interestrate.png}
+    \caption{Estimated the term structure of interest rates}
+    \label{fig:interest rate}
+\end{figure}
+
+\section{Conclusion}
+
+The objective of this study was to refine the calibration of the Nelson–Siegel yield curve by embedding bid–ask information directly into the loss function. Although our loss function is differentiable across its entire domain, it exhibits non-convexity within the range of interest, suggesting that the optimized solutions may correspond to local minima. We acknowledge that the loss function is sensitive to initial values, and while we attempted to explore a variety of starting points to mitigate this issue, we did not conduct a deep analysis of initial-value dependence. This decision was based on the nature of the yield curve as an economic variable, which tends to remain within a relatively stable range. As such, our focus was on identifying parameter estimates that closely match benchmark curves. To address the calibration problem, we adopted two optimisation strategies. First, by incorporating a constraint on $\gamma$ directly within the objective function, we enabled the use of unconstrained optimisation algorithms. Second, we introduced boundary conditions externally to support constrained optimisation. In this context, the the L-BFGS-B algorithm consistently yielded the lowest loss value. These algorithms also produced term structures that closely resemble the benchmark curve, although the long end tended to be steeper due to the large estimated values of $\gamma$.
+
+\subsection{Limitations and future work} 
+
+Due to the limited availability of related research, we were unable to validate whether the obtained optimum adequately reflects Australia's term structure of interest rates. We hope that further studies will provide supporting evidence for the validity of the optimized parameters derived through our method. Additionally, future research could extend the analysis by applying bond data from other countries to examine the performance of yield curve optimization across different national markets. Such comparative studies may also help identify which optimization techniques are best suited for each context.
+
+
+\clearpage
+\section*{Appendix A}
+
+\subsection*{1. Gradient of the Loss}
+
+Define
+\[
+L_j
+ = \Bigl(\frac{\max\{0,V_j-\mathrm{Ask}_j\}}{A_j}\Bigr)^{2}
+ + \Bigl(\frac{\max\{0,\mathrm{Bid}_j-V_j\}}{B_j}\Bigr)^{2}.
+\]
+Then
+\begin{equation}
+\frac{\partial L}{\partial\theta}
+  =\sum_{j=1}^{m}\frac{\partial L_j}{\partial\theta},
+  \qquad
+  \theta\in\{f_0,f_1,f_2,\gamma\},
+\end{equation}
+with
+\[
+\frac{\partial L_j}{\partial\theta}=
+\begin{cases}
+ \dfrac{V_j-\mathrm{Ask}_j}{A_j^{2}}\,
+ \dfrac{\partial V_j}{\partial\theta},
+   & V_j>\mathrm{Ask}_j,\\[0.6em]
+ 0, & \mathrm{Bid}_j<V_j<\mathrm{Ask}_j,\\[0.6em]
+ \dfrac{V_j-\mathrm{Bid}_j}{B_j^{2}}\,
+ \dfrac{\partial V_j}{\partial\theta},
+   & V_j<\mathrm{Bid}_j.
+\end{cases}
+\]
+
+\paragraph{First derivatives of \(B(0,T)\).}
+\begin{align}
+\frac{\partial B}{\partial f_0} &= -T\,B(0,T),\\
+\frac{\partial B}{\partial f_1} &= B(0,T)\,\bigl(-\gamma+\mathrm{e}^{-T/\gamma}\gamma\bigr),\\
+\frac{\partial B}{\partial f_2} &= B(0,T)\,\bigl(-\gamma+\mathrm{e}^{-T/\gamma}(T+\gamma)\bigr),\\
+\frac{\partial B}{\partial\gamma} &=
+  B(0,T)\Bigl[
+    -1-\mathrm{e}^{-T/\gamma}
+    -\mathrm{e}^{-T/\gamma}\tfrac{T}{\gamma}\,f_1
+    -\bigl(1+\mathrm{e}^{-T/\gamma}
+           +\mathrm{e}^{-T/\gamma}\tfrac{T(T+\gamma)}{\gamma^{2}}\bigr)f_2
+  \Bigr].
+\end{align}
+
+%-------------------------------------------------
+\subsection*{2. Hessian of the Loss}
+
+\begin{align}
+\frac{\partial^{2} L}{\partial\theta_1\partial\theta_2}
+  =
+  \begin{cases}
+  \sum_{j=1}^{m}  \dfrac{V_j-\mathrm{Ask}_j}{A_j^{2}}
+      \dfrac{\partial^{2}V_j}{\partial\theta_1\partial\theta_2}
+    +\dfrac{1}{A_j^{2}}
+      \dfrac{\partial V_j}{\partial\theta_1}
+      \dfrac{\partial V_j}{\partial\theta_2},
+      & V_j>\mathrm{Ask}_j,\\[0.8em]
+    0, & \mathrm{Bid}_j<V_j<\mathrm{Ask}_j,\\[0.8em]
+   \sum_{j=1}^{m} \dfrac{V_j-\mathrm{Bid}_j}{B_j^{2}}
+      \dfrac{\partial^{2}V_j}{\partial\theta_1\partial\theta_2}
+    +\dfrac{1}{B_j^{2}}
+      \dfrac{\partial V_j}{\partial\theta_1}
+      \dfrac{\partial V_j}{\partial\theta_2},
+      & V_j<\mathrm{Bid}_j,
+  \end{cases}
+\end{align}
+where
+\[
+\frac{\partial^{2}V_j}{\partial\theta_1\partial\theta_2}
+  =100\sum_{i=1}^{n_j} c_j
+      \frac{\partial^{2}B(0,T^{(j)}_i)}
+           {\partial\theta_1\partial\theta_2}
+     +\frac{\partial^{2}B\!\bigl(0,T^{(j)}_{n_j}\bigr)}
+           {\partial\theta_1\partial\theta_2}.
+\]
+
+%-------------------------------------------------
+\subsection*{3. Second Derivatives of \(B(0,T)\)}
+
+Let \(\theta_1,\theta_2\in\{f_0,f_1,f_2,\gamma\}\).
+Every \(\partial^{2}B/\partial\theta_1\partial\theta_2\) term is listed below
+(without algebraic simplification):
+
+\begin{align}
+\frac{\partial^{2}B}{\partial f_0^{2}}
+  &= B(0,T)\,T^{2}, \\[0.2em]
+\frac{\partial^{2}B}{\partial f_0\partial f_1}
+  &= -B(0,T)\,T\bigl(-\gamma+\mathrm{e}^{-T/\gamma}\gamma\bigr), \\[0.2em]
+\frac{\partial^{2}B}{\partial f_0\partial f_2}
+  &= -B(0,T)\,T\bigl(-\gamma+\mathrm{e}^{-T/\gamma}(T+\gamma)\bigr), \\[0.2em]
+\frac{\partial^{2}B}{\partial f_0\partial\gamma}
+  &= -B(0,T)\Bigl[
+        T
+        +\bigl(1+\mathrm{e}^{-T/\gamma}
+               +\mathrm{e}^{-T/\gamma}\tfrac{T}{\gamma}\bigr)f_1
+        +\bigl(1+\mathrm{e}^{-T/\gamma}
+               +\mathrm{e}^{-T/\gamma}\tfrac{T(T+\gamma)}{\gamma^{2}}\bigr)f_2
+      \Bigr], \\[0.4em]
+\frac{\partial^{2}B}{\partial f_1^{2}}
+  &= B(0,T)\bigl(-\gamma+\mathrm{e}^{-T/\gamma}\gamma\bigr)^{2}, \\[0.2em]
+\frac{\partial^{2}B}{\partial f_1\partial f_2}
+  &= B(0,T)\bigl(-\gamma+\mathrm{e}^{-T/\gamma}\gamma\bigr)
+               \bigl(-\gamma+\mathrm{e}^{-T/\gamma}(T+\gamma)\bigr), \\[0.2em]
+\frac{\partial^{2}B}{\partial f_1\partial\gamma}
+  &= B(0,T)\Bigl[
+        -1+\mathrm{e}^{-T/\gamma}
+        +\mathrm{e}^{-T/\gamma}\tfrac{T}{\gamma}
+        -\bigl(1+\mathrm{e}^{-T/\gamma}
+               +\mathrm{e}^{-T/\gamma}\tfrac{T}{\gamma}\bigr)f_1
+        -\bigl(1+\mathrm{e}^{-T/\gamma}
+               +\mathrm{e}^{-T/\gamma}\tfrac{T(T+\gamma)}{\gamma^{2}}\bigr)f_2
+      \Bigr], \\[0.4em]
+\frac{\partial^{2}B}{\partial f_2^{2}}
+  &= B(0,T)\bigl(-\gamma+\mathrm{e}^{-T/\gamma}(T+\gamma)\bigr)^{2}, \\[0.2em]
+\frac{\partial^{2}B}{\partial f_2\partial\gamma}
+  &= B(0,T)\Bigl[
+        -1+\mathrm{e}^{-T/\gamma}
+        +\mathrm{e}^{-T/\gamma}\tfrac{T(T+\gamma)}{\gamma^{2}}
+        +\bigl(-\gamma+\mathrm{e}^{-T/\gamma}(T+\gamma)\bigr) \\
+  &\qquad\quad
+        -\bigl(1+\mathrm{e}^{-T/\gamma}
+               +\mathrm{e}^{-T/\gamma}\tfrac{T}{\gamma}\bigr)f_1
+        -\bigl(1+\mathrm{e}^{-T/\gamma}
+               +\mathrm{e}^{-T/\gamma}\tfrac{T(T+\gamma)}{\gamma^{2}}\bigr)f_2
+      \Bigr], \\[0.4em]
+\frac{\partial^{2}B}{\partial\gamma^{2}}
+  &= B(0,T)\Bigl[
+        \mathrm{e}^{-T/\gamma}\frac{T^{2}}{\gamma^{3}}\,f_1
+      - 2\,\mathrm{e}^{-T/\gamma}\frac{T}{\gamma^{2}}
+      - \mathrm{e}^{-T/\gamma}\frac{T^{2}(T+\gamma)}{\gamma^{4}} \\
+  &\qquad\quad
+      + 2\,\mathrm{e}^{-T/\gamma}\frac{T(T+\gamma)}{\gamma^{3}}\,f_2
+      - \bigl(1+\mathrm{e}^{-T/\gamma}
+              +\mathrm{e}^{-T/\gamma}\tfrac{T}{\gamma}\bigr)f_1
+      - \bigl(1+\mathrm{e}^{-T/\gamma}
+              +\mathrm{e}^{-T/\gamma}\tfrac{T(T+\gamma)}{\gamma^{2}}\bigr)f_2
+      \Bigr].
+\end{align}
+
+
+\section*{Appendix B: Code Repository}
+The source code used for all experiments and visualizations in this study is available at:\\
+\url{https://github.com/Thaigithub/UTS_PO_Assignment}
+
+
+
+\begin{thebibliography}{}
+
+\bibitem[Nelson and Siegel(1987)]{NelsonSiegel1987}
+Nelson, C.\,R.\ and Siegel, A.\,F. (1987).
+Parsimonious modeling of yield curves.
+\textit{Journal of Business}, 60(4), 473--489.
+
+\bibitem[Gomes-Gon\c{c}alves \textit{et~al.}(2017)]{GomesGoncalvesGzylMayoral2017}
+Gomes-Gon\c{c}alves, E., Gzyl, H.\ and Mayoral, S.\ (2017).
+Calibration of short-rate term-structure models from bid–ask coupon-bond prices.
+\textit{Physica A: Statistical Mechanics and its Applications}, 492, 1456--1472.
+
+\bibitem[Lapshin and Sohatskaya(2020)]{LapshinSohatskaya2020}
+Lapshin, V.\ and Sohatskaya, S.\ (2020).
+Choosing the weighting coefficients for estimating the term structure from sovereign bonds.
+\textit{International Review of Economics \& Finance}, 70, 635--648.
+
+\bibitem[Diebold and Li(2006)]{DieboldLi2006}
+Diebold, F.\,X.\ and Li, C. (2006).
+Forecasting the term structure of government bond yields.
+\textit{Journal of Econometrics}, 130(2), 337--364.
+
+\end{thebibliography}
+
+\end{document}
